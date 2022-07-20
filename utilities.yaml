@@ -1,0 +1,216 @@
+---
+- name: Configure monitoring services
+
+  hosts: localhost
+
+  vars:
+
+  pre_tasks:
+
+    - name: Check for dependent python modules
+      community.general.python_requirements_info:
+        dependencies:
+          - docker>=5.0.0
+      tags:
+        - always
+
+  tasks:
+
+    ####### Docker Socket Proxy SECTION
+
+    # Docker Socket Proxy - Security Enhanced Proxy for Docker Socket
+
+    - name: Set Docker Socket Proxy facts
+      ansible.builtin.set_fact:
+        docker_proxy_image_name: tecnativa/docker-socket-proxy
+        docker_proxy_image_tag: latest
+        docker_proxy_container_name: dockerproxy
+      tags:
+        - docker_socket_proxy
+
+    - name: Check if Docker Socket Proxy is running
+      community.docker.docker_container_info:
+        name: "{{ docker_proxy_container_name }}"
+      register: docker_socket_proxy_state
+      
+    - block:
+
+      - name: Pull Docker Socket Proxy image
+        community.docker.docker_image:
+          name: "{{ docker_proxy_image_name }}:{{ docker_proxy_image_tag | default('latest') }}"
+          source: pull
+        tags:
+          - docker_socket_proxy
+          
+      - name: Start Docker Socket Proxy
+        community.docker.docker_container:
+          name: "{{ docker_proxy_container_name }}"
+          image: "{{ docker_proxy_image_name }}:{{ docker_proxy_image_tag }}"
+          env:
+            LOG_LEVEL: info  # debug,info,notice,warning,err,crit,alert,emerg
+            ## Variables match the URL prefix (i.e. AUTH blocks access to /auth/* parts of the API, etc.).
+            # 0 to revoke access.
+            # 1 to grant access.
+            ## Granted by Default
+            EVENTS: "1"
+            PING: "1"
+            VERSION: "1"
+            ## Revoked by Default
+            # Security critical
+            AUTH: "0"
+            SECRETS: "0"
+            POST: "1"  # Ouroboros
+            # Not always needed
+            BUILD: "0"
+            COMMIT: "0"
+            CONFIGS: "0"
+            CONTAINERS: "1"  # Traefik, portainer, etc.
+            DISTRIBUTION: "0"
+            EXEC: "0"
+            IMAGES: "1"  # Portainer
+            INFO: "1"  # Portainer
+            NETWORKS: "1"  # Portainer
+            NODES: "0"
+            PLUGINS: "0"
+            SERVICES: "1"  # Portainer
+            SESSION: "0"
+            SWARM: "0"
+            SYSTEM: "0"
+            TASKS: "1"  # Portaienr
+            VOLUMES: "1"  # Portainer
+          # networks:
+          #   socket_proxy:
+          #     ipv4_address: 192.168.91.254 # You can specify a static IP
+          published_ports:
+            - "127.0.0.1:2375:2375" # Port 2375 should only ever get exposed to the internal network. When possible use this line.
+          # I use the next line instead, as I want portainer to manage multiple docker endpoints within my home network.
+          # - "2375:2375"
+          privileged: true
+          restart: true
+          restart_policy: unless-stopped
+          state: started
+          volumes:
+            - "/var/run/docker.sock:/var/run/docker.sock"
+        tags:
+          - docker_socket_proxy
+
+      when: not docker_socket_proxy_state.exists
+
+    ####### PORTAINER SECTION
+
+    # https://documentation.portainer.io/v2.0/deploy/ceinstalldocker/
+
+    - name: Set Portainer facts
+      ansible.builtin.set_fact:
+        portainer_image_name: portainer/portainer-ce
+        portainer_image_tag: latest
+        portainer_container_name: portainer
+        portainer_container_port: 9443
+        portainer_volume: portainer_volume
+      tags:
+        - portainer
+
+    - name: Check if Portainer is running
+      community.docker.docker_container_info:
+        name: "{{ portainer_container_name }}"
+      register: portainer_state
+      
+    - block:
+
+      - name: Pull Portainer image
+        community.docker.docker_image:
+          name: "{{ portainer_image_name }}:{{ portainer_image_tag | default('latest') }}"
+          source: pull
+        tags:
+          - portainer
+
+      - name: Create volume for Portainer
+        community.docker.docker_volume:
+          name: "{{ portainer_volume }}"
+        tags:
+          - portainer
+
+      - name: Start Portainer
+        community.docker.docker_container:
+          name: "{{ portainer_container_name }}"
+          image: "{{ portainer_image_name }}:{{ portainer_image_tag | default('latest') }}"
+          detach: true
+          published_ports:
+            - "{{ portainer_container_port }}:9443"
+          restart_policy: unless-stopped
+          state: started
+          volumes:
+            - "{{ portainer_volume }}:/data"
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - /etc/localtime:/etc/localtime:ro
+        register: portainer_register
+        tags:
+          - portainer
+
+      - name: Wait for Portainer to accept connections
+        ansible.builtin.wait_for:
+          # host: "{{ portainer_register['container']\
+          #   ['NetworkSettings']\
+          #   ['Networks']\
+          #   ['monitoring-network']\
+          #   ['IPAddress'] }}"
+          host: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+          port: "{{ portainer_container_port | default(9443) }}"
+          connect_timeout: 1
+          delay: 10
+          state: started
+          timeout: 30
+        register: portainer_running
+        until: portainer_running is success
+        retries: 10
+        tags:
+          - portainer
+
+      when: not portainer_state.exists
+
+    ####### WATCHTOWER SECTION
+
+    # Source: https://hub.docker.com/r/containrrr/watchtower
+
+    - name: Set Watchtower facts
+      ansible.builtin.set_fact:
+        watchtower_image_name: containrrr/watchtower
+        watchtower_image_tag: latest
+        watchtower_container_name: watchtower
+        watchtower_volume: loki-volume
+      tags:
+        - watchtower
+
+    - name: Check if Watchtower is running
+      community.docker.docker_container_info:
+        name: "{{ watchtower_container_name }}"
+      register: watchtower_state
+      
+    - block:
+    
+      - name: Pull Watchtower image
+        community.docker.docker_image:
+          name: "{{ watchtower_image_name }}:{{ watchtower_image_tag | default('latest') }}"
+          source: pull
+        tags:
+          - watchtower
+
+      - name: Start Watchtower
+        community.docker.docker_container:
+          name: "{{ watchtower_container_name }}"
+          image: "{{ watchtower_image_name }}:{{ watchtower_image_tag | default('latest') }}"
+          # command: --schedule "0 0 4 * * *"
+          detach: true
+          env:
+            WATCHTOWER_CLEANUP: true
+          restart: true
+          restart_policy: unless-stopped
+          state: started
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - /etc/localtime:/etc/localtime:ro
+        register: watchtower_register
+        tags:
+          - watchtower
+
+      when: not watchtower_state.exists
