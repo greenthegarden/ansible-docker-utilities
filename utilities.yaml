@@ -22,7 +22,8 @@
 
     - name: Set Docker Socket Proxy facts
       ansible.builtin.set_fact:
-        docker_proxy_image_name: tecnativa/docker-socket-proxy
+        # docker_proxy_image_name: tecnativa/docker-socket-proxy
+        docker_proxy_image_name: fluencelabs/docker-socket-proxy
         docker_proxy_image_tag: latest
         docker_proxy_container_name: dockerproxy
       tags:
@@ -59,7 +60,7 @@
             # Security critical
             AUTH: "0"
             SECRETS: "0"
-            POST: "1"  # Ouroboros
+            POST: "0"
             # Not always needed
             BUILD: "0"
             COMMIT: "0"
@@ -135,6 +136,8 @@
           name: "{{ portainer_container_name }}"
           image: "{{ portainer_image_name }}:{{ portainer_image_tag | default('latest') }}"
           detach: true
+          env:
+            DOCKER_HOST: tcp://docker-socket-proxy:2375
           published_ports:
             - "{{ portainer_container_port }}:9443"
           restart_policy: unless-stopped
