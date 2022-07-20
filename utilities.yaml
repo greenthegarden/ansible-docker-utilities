@@ -175,12 +175,11 @@
 
       when: not portainer_state.exists
 
-    ####### KUMA SECTION
+    ####### UPTIME KUMA SECTION
 
     # https://ashishsecdev.medium.com/uptime-kuma-open-source-monitoring-tool-460ef5b7a64c
-    # user: homeassistant, pass: h0meassistant
 
-    - name: Set Kuma facts
+    - name: Set Uptime Kuma facts
       ansible.builtin.set_fact:
         kuma_image_name: louislam/uptime-kuma
         kuma_image_tag: '1'
@@ -199,7 +198,7 @@
       
     - block:
 
-      - name: Pull Uotime Kuma image
+      - name: Pull Uptime Kuma image
         community.docker.docker_image:
           name: "{{ kuma_image_name }}:{{ kuma_image_tag | default('latest') }}"
           source: pull
@@ -249,6 +248,53 @@
         tags:
           - kuma
 
+      - name: Set Grafana facts
+        ansible.builtin.set_fact:
+          grafana_container_name: grafana
+          grafana_container_port: 3000
+        tags:
+          - kuma
+          - grafana
+
+      - name: Set Grafana API facts
+        ansible.builtin.set_fact:
+          grafana_instance: "{{ grafana_container_name | default('grafana') }}"
+          # Use domain name here as Grafana is running on a different Docker network
+          grafana_api_url: "http://{{ ansible_default_ipv4.address }}:{{ grafana_container_port }}"
+          grafana_security: {admin_user: admin, admin_password: "monitoring"}
+          grafana_use_provisioning: false  # will use API
+        tags:
+          - kuma
+          - grafana
+
+      - name: Check if Grafana is running
+        community.docker.docker_container_info:
+          name: "{{ grafana_container_name }}"
+        register: grafana_state
+        tags:
+          - kuma
+          - grafana
+
+      - name: Create Grafana dashboard
+        community.grafana.grafana_dashboard:
+          grafana_url: "{{ grafana_api_url }}"
+          # grafana_api_key: "{{ grafana_api_key }}"
+          grafana_user: "{{ grafana_security.admin_user }}"
+          grafana_password: "{{ grafana_security.admin_password }}"
+          # folder: General
+          dashboard_url: "https://grafana.com/api/dashboards/{{ item.dashboard_id }}/revisions/{{ item.dashboard_revision }}/download"
+        vars:
+          grafana_dashboards:
+            # Uptime Kumaby proffalken
+            # https://grafana.com/grafana/dashboards/14847
+            - dashboard_id: '14847'
+              dashboard_revision: '2'
+              datasource: 'Prometheus'
+        with_items: "{{ grafana_dashboards }}"
+        tags:
+          - kuma
+          - grafana
+
       when: not kuma_state.exists
 
     ####### What's Up Docker SECTION
@@ -258,7 +304,7 @@
     - name: Set What's up Docker? facts
       ansible.builtin.set_fact:
         wud_image_name: fmartinou/whats-up-docker
-        wud_image_tag: '5.18.0'
+        wud_image_tag: latest
         wud_container_name: whats-up-docker
         wud_container_port: 3003
       tags:
