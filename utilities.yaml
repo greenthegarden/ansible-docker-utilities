@@ -1,5 +1,5 @@
 ---
-- name: Configure monitoring services
+- name: Configure utility services
 
   hosts: localhost
 
@@ -25,7 +25,7 @@
         # docker_proxy_image_name: tecnativa/docker-socket-proxy
         docker_proxy_image_name: fluencelabs/docker-socket-proxy
         docker_proxy_image_tag: latest
-        docker_proxy_container_name: dockerproxy
+        docker_proxy_container_name: docker-socket-proxy
       tags:
         - docker_socket_proxy
 
@@ -33,6 +33,8 @@
       community.docker.docker_container_info:
         name: "{{ docker_proxy_container_name }}"
       register: docker_socket_proxy_state
+      tags:
+        - docker_socket_proxy
       
     - block:
 
@@ -115,6 +117,8 @@
       community.docker.docker_container_info:
         name: "{{ portainer_container_name }}"
       register: portainer_state
+      tags:
+        - portainer
       
     - block:
 
@@ -171,6 +175,149 @@
 
       when: not portainer_state.exists
 
+    ####### KUMA SECTION
+
+    # https://ashishsecdev.medium.com/uptime-kuma-open-source-monitoring-tool-460ef5b7a64c
+    # user: homeassistant, pass: h0meassistant
+
+    - name: Set Kuma facts
+      ansible.builtin.set_fact:
+        kuma_image_name: louislam/uptime-kuma
+        kuma_image_tag: '1'
+        kuma_container_name: uptimekuma
+        kuma_container_port: 3001
+        kuma_volume: uptime-kuma-volume
+      tags:
+        - kuma
+
+    - name: Check if Uptime Kuma is running
+      community.docker.docker_container_info:
+        name: "{{ kuma_container_name }}"
+      register: kuma_state
+      tags:
+        - kuma
+      
+    - block:
+
+      - name: Pull Uotime Kuma image
+        community.docker.docker_image:
+          name: "{{ kuma_image_name }}:{{ kuma_image_tag | default('latest') }}"
+          source: pull
+        tags:
+          - kuma
+
+      - name: Create volume for Uptime Kuma
+        community.docker.docker_volume:
+          name: "{{ kuma_volume }}"
+          state: present
+        tags:
+          - kuma
+
+      # docker run -d —-restart=always -p 3001:3001 -v uptime-kuma:/app/data —-name uptimekuma louislam/uptime-kuma:1
+      - name: Run Uptime Kuma
+        community.docker.docker_container:
+          name: "{{ kuma_container_name }}"
+          image: "{{ kuma_image_name }}:{{ kuma_image_tag | default('latest') }}"
+          detach: true
+          published_ports:
+            - 3001:3001
+          restart: true
+          restart_policy: unless-stopped
+          state: started
+          volumes:
+            - "{{ kuma_volume }}:/app/data"
+        register: kuma_register
+        tags:
+          - kuma
+
+      - name: Wait for Uptime Kuma to accept connections
+        ansible.builtin.wait_for:
+          # host: "{{ kuma_register['container']\
+          #   ['NetworkSettings']\
+          #   ['Networks']\
+          #   ['monitoring-network']\
+          #   ['IPAddress'] }}"
+          host: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+          port: "{{ kuma_container_port | default(3001) }}"
+          connect_timeout: 1
+          delay: 10
+          state: started
+          timeout: 30
+        register: kuma_running
+        until: kuma_running is success
+        retries: 10
+        tags:
+          - kuma
+
+      when: not kuma_state.exists
+
+    ####### What's Up Docker SECTION
+
+    # https://fmartinou.github.io/whats-up-docker/#/quickstart/
+
+    - name: Set What's up Docker? facts
+      ansible.builtin.set_fact:
+        wud_image_name: fmartinou/whats-up-docker
+        wud_image_tag: '5.18.0'
+        wud_container_name: whats-up-docker
+        wud_container_port: 3003
+      tags:
+        - whats-up-docker
+
+    - name: Check if What's up Docker? is running
+      community.docker.docker_container_info:
+        name: "{{ wud_container_name }}"
+      register: wud_state
+      tags:
+        - whats-up-docker
+
+    - block:
+
+      - name: Pull What's up Docker? image
+        community.docker.docker_image:
+          name: "{{ wud_image_name }}:{{ wud_image_tag | default('latest') }}"
+          source: pull
+        tags:
+          - whats-up-docker
+
+      # docker run -d --name wud \
+      #   -v "/var/run/docker.sock:/var/run/docker.sock" \
+      #   -p 3000:3000 \
+      #   fmartinou/whats-up-docker
+      - name: Start What's up Docker?
+        community.docker.docker_container:
+          name: "{{ wud_container_name }}"
+          image: "{{wud_image_name }}:{{ wud_image_tag | default('latest') }}"
+          detach: true
+          env:
+            WUD_TRIGGER_MQTT_MOSQUITTO_URL: "mqtt://192.168.1.186:1883"
+            WUD_TRIGGER_MQTT_MOSQUITTO_HASS_ENABLED: "true"
+          published_ports:
+            - "{{ wud_container_port }}:3000"
+          restart: true
+          restart_policy: unless-stopped
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - /etc/localtime:/etc/localtime:ro
+        tags:
+          - whats-up-docker
+
+      - name: Wait for What's up Docker? to accept connections
+        ansible.builtin.wait_for:
+          host: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+          port: "{{ wud_container_port | default(3000) }}"
+          connect_timeout: 1
+          delay: 10
+          state: started
+          timeout: 30
+        register: wud_running
+        until: wud_running is success
+        retries: 10
+        tags:
+          - whats-up-docker
+
+      when: not wud_state.exists
+
     ####### WATCHTOWER SECTION
 
     # Source: https://hub.docker.com/r/containrrr/watchtower
@@ -188,6 +335,8 @@
       community.docker.docker_container_info:
         name: "{{ watchtower_container_name }}"
       register: watchtower_state
+      tags:
+        - watchtower
       
     - block:
     
