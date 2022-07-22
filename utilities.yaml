@@ -143,7 +143,7 @@
           env:
             DOCKER_HOST: tcp://docker-socket-proxy:2375
           published_ports:
-            - "{{ portainer_container_port }}:9443"
+            - "{{ portainer_container_port | default(9443) }}:9443"
           restart_policy: unless-stopped
           state: started
           volumes:
@@ -219,7 +219,7 @@
           image: "{{ kuma_image_name }}:{{ kuma_image_tag | default('latest') }}"
           detach: true
           published_ports:
-            - 3001:3001
+            - "{{ kuma_container_port | default(3001) }}:3001"
           restart: true
           restart_policy: unless-stopped
           state: started
@@ -297,6 +297,74 @@
 
       when: not kuma_state.exists
 
+
+
+    ####### DASHY SECTION
+
+    # https://dashy.to/
+
+    - name: Set Dashy facts
+      ansible.builtin.set_fact:
+        dashy_image_name: lissy93/dashy
+        dashy_image_tag: latest
+        dashy_container_name: dashy
+        dashy_container_port: 8888
+      tags:
+        - dashy
+
+    - name: Check if Dashy is running
+      community.docker.docker_container_info:
+        name: "{{ dashy_container_name }}"
+      register: dashy_state
+      tags:
+        - dashy
+
+    - block:
+
+      - name: Pull Dashy image
+        community.docker.docker_image:
+          name: "{{ dashy_image_name }}:{{ dashy_image_tag | default('latest') }}"
+          source: pull
+        tags:
+          - dashy
+
+# docker run -d \
+#   -p 8080:80 \
+#   -v ~/my-conf.yml:/app/public/conf.yml \
+#   --name my-dashboard \
+#   --restart=always \
+#   lissy93/dashy:latest
+      - name: Start Dashy
+        community.docker.docker_container:
+          name: "{{ dashy_container_name }}"
+          image: "{{dashy_image_name }}:{{ dashy_image_tag | default('latest') }}"
+          detach: true
+          published_ports:
+            - "{{ dashy_container_port | default(8080) }}:80"
+          restart: true
+          restart_policy: unless-stopped
+          volumes:
+            # - ~/my-conf.yml:/app/public/conf.yml
+            - /etc/localtime:/etc/localtime:ro
+        tags:
+          - dashy
+
+      - name: Wait for Dashy to accept connections
+        ansible.builtin.wait_for:
+          host: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+          port: "{{ dashy_container_port | default(8080) }}"
+          connect_timeout: 1
+          delay: 10
+          state: started
+          timeout: 30
+        register: dashy_running
+        until: dashy_running is success
+        retries: 10
+        tags:
+          - dashy
+
+      when: not dashy_state.exists
+
     ####### What's Up Docker SECTION
 
     # https://fmartinou.github.io/whats-up-docker/#/quickstart/
@@ -339,7 +407,7 @@
             WUD_TRIGGER_MQTT_MOSQUITTO_URL: "mqtt://192.168.1.186:1883"
             WUD_TRIGGER_MQTT_MOSQUITTO_HASS_ENABLED: "true"
           published_ports:
-            - "{{ wud_container_port }}:3000"
+            - "{{ wud_container_port | default(3000) }}:3000"
           restart: true
           restart_policy: unless-stopped
           volumes:
