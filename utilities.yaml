@@ -144,6 +144,7 @@
             DOCKER_HOST: tcp://docker-socket-proxy:2375
           published_ports:
             - "{{ portainer_container_port | default(9443) }}:9443"
+          restart: true
           restart_policy: unless-stopped
           state: started
           volumes:
@@ -285,7 +286,7 @@
           dashboard_url: "https://grafana.com/api/dashboards/{{ item.dashboard_id }}/revisions/{{ item.dashboard_revision }}/download"
         vars:
           grafana_dashboards:
-            # Uptime Kumaby proffalken
+            # Uptime Kuma by proffalken
             # https://grafana.com/grafana/dashboards/14847
             - dashboard_id: '14847'
               dashboard_revision: '2'
@@ -296,8 +297,6 @@
           - grafana
 
       when: not kuma_state.exists
-
-
 
     ####### DASHY SECTION
 
@@ -328,12 +327,12 @@
         tags:
           - dashy
 
-# docker run -d \
-#   -p 8080:80 \
-#   -v ~/my-conf.yml:/app/public/conf.yml \
-#   --name my-dashboard \
-#   --restart=always \
-#   lissy93/dashy:latest
+      # docker run -d \
+      #   -p 8080:80 \
+      #   -v ~/my-conf.yml:/app/public/conf.yml \
+      #   --name my-dashboard \
+      #   --restart=always \
+      #   lissy93/dashy:latest
       - name: Start Dashy
         community.docker.docker_container:
           name: "{{ dashy_container_name }}"
