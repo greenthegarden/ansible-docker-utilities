@@ -99,6 +99,201 @@
 
       when: not docker_socket_proxy_state.exists
 
+    ####### CONSUL SECTION
+
+    # https://www.consul.io/docs/dynamic-app-config/kv
+    # https://hub.docker.com/_/consul/
+
+    - name: Set Consul facts
+      ansible.builtin.set_fact:
+        consul_image_name: consul
+        consul_image_tag: latest
+        consul_container_name: consul
+        consul_container_port: 8500
+      tags:
+        - consul
+
+    - name: Check if Consul is running
+      community.docker.docker_container_info:
+        name: "{{ consul_container_name }}"
+      register: consul_state
+      tags:
+        - consul
+      
+    - block:
+
+      - name: Pull Consul image
+        community.docker.docker_image:
+          name: "{{ consul_image_name }}:{{ consul_image_tag | default('latest') }}"
+          source: pull
+        tags:
+          - consul
+
+      - name: Start Consul
+        community.docker.docker_container:
+          name: "{{ consul_container_name }}"
+          image: "{{ consul_image_name }}:{{ consul_image_tag | default('latest') }}"
+          detach: true
+          published_ports:
+            - "{{ consul_container_port | default(8500) }}:8500"
+          restart: true
+          restart_policy: unless-stopped
+          state: started
+          volumes:
+            - /etc/localtime:/etc/localtime:ro
+        register: consul_register
+        tags:
+          - consul
+
+      - name: Wait for Consul to accept connections
+        ansible.builtin.wait_for:
+          host: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+          port: "{{ consul_container_port | default(8500) }}"
+          connect_timeout: 1
+          delay: 10
+          state: started
+          timeout: 30
+        register: consul_running
+        until: consul_running is success
+        retries: 10
+        tags:
+          - consul
+
+      when: not consul_state.exists
+
+    ####### VAULT SECTION
+
+    # https://hub.docker.com/_/vault
+
+    - name: Set Vault facts
+      ansible.builtin.set_fact:
+        vault_image_name: vault
+        vault_image_tag: latest
+        vault_container_name: vault
+        vault_container_port: 8200
+      tags:
+        - vault
+
+    - name: Set Vault vault facts
+      ansible.builtin.set_fact:
+        vault_dev_root_token_id: homelabroot
+      tags:
+        - vault
+
+    - name: Check if Vault is running
+      community.docker.docker_container_info:
+        name: "{{ vault_container_name }}"
+      register: vault_state
+      tags:
+        - vault
+      
+    - block:
+
+      - name: Pull Vault image
+        community.docker.docker_image:
+          name: "{{ vault_image_name }}:{{ vault_image_tag | default('latest') }}"
+          source: pull
+        tags:
+          - vault
+
+      - name: Start Vault
+        community.docker.docker_container:
+          name: "{{ vault_container_name }}"
+          image: "{{ vault_image_name }}:{{ vault_image_tag | default('latest') }}"
+          capabilities:
+            - IPC_LOCK
+          detach: true
+          env:
+            VAULT_DEV_ROOT_TOKEN_ID: "{{ vault_dev_root_token_id }}"
+          published_ports:
+            - "{{ vault_container_port | default(8200) }}:8200"
+          restart: true
+          restart_policy: unless-stopped
+          state: started
+          volumes:
+            - /etc/localtime:/etc/localtime:ro
+        register: vault_register
+        tags:
+          - vault
+
+      - name: Wait for Vault to accept connections
+        ansible.builtin.wait_for:
+          host: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+          port: "{{ vault_container_port | default(8200) }}"
+          connect_timeout: 1
+          delay: 10
+          state: started
+          timeout: 30
+        register: vault_running
+        until: vault_running is success
+        retries: 10
+        tags:
+          - vault
+
+      when: not vault_state.exists
+
+    ####### CONSUL SECTION
+
+    # https://www.consul.io/docs/dynamic-app-config/kv
+    # https://hub.docker.com/_/consul/
+
+    - name: Set Consul facts
+      ansible.builtin.set_fact:
+        consul_image_name: consul
+        consul_image_tag: latest
+        consul_container_name: consul
+        consul_container_port: 8500
+      tags:
+        - consul
+
+    - name: Check if Consul is running
+      community.docker.docker_container_info:
+        name: "{{ consul_container_name }}"
+      register: consul_state
+      tags:
+        - consul
+      
+    - block:
+
+      - name: Pull Consul image
+        community.docker.docker_image:
+          name: "{{ consul_image_name }}:{{ consul_image_tag | default('latest') }}"
+          source: pull
+        tags:
+          - consul
+
+      - name: Start Consul
+        community.docker.docker_container:
+          name: "{{ consul_container_name }}"
+          image: "{{ consul_image_name }}:{{ consul_image_tag | default('latest') }}"
+          detach: true
+          published_ports:
+            - "{{ consul_container_port | default(8500) }}:8500"
+          restart: true
+          restart_policy: unless-stopped
+          state: started
+          volumes:
+            - /etc/localtime:/etc/localtime:ro
+        register: consul_register
+        tags:
+          - consul
+
+      - name: Wait for Consul to accept connections
+        ansible.builtin.wait_for:
+          host: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+          port: "{{ consul_container_port | default(8500) }}"
+          connect_timeout: 1
+          delay: 10
+          state: started
+          timeout: 30
+        register: consul_running
+        until: consul_running is success
+        retries: 10
+        tags:
+          - consul
+
+      when: not consul_state.exists
+
     ####### PORTAINER SECTION
 
     # https://documentation.portainer.io/v2.0/deploy/ceinstalldocker/
