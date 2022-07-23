@@ -232,6 +232,21 @@
 
       when: not vault_state.exists
 
+    ####### CONSUL NETWORK SECTION
+
+    - name: Set Consul network facts
+      ansible.builtin.set_fact:
+        consul_network_name: consul-network
+      tags:
+        - consul
+
+    - name: Create Consul network
+      community.docker.docker_network:
+        name: "{{ consul_network_name | default('consul-network') }}"
+        internal: false
+      tags:
+        - consul
+
     ####### CONSUL SECTION
 
     # https://www.consul.io/docs/dynamic-app-config/kv
@@ -262,13 +277,17 @@
         tags:
           - consul
 
-      - name: Start Consul
+      - name: Start Consul container
         community.docker.docker_container:
           name: "{{ consul_container_name }}"
           image: "{{ consul_image_name }}:{{ consul_image_tag | default('latest') }}"
+          command: "agent -server -bootstrap-expect 1 -ui -client 0.0.0.0"
           detach: true
           published_ports:
+            - "8400:8400"
             - "{{ consul_container_port | default(8500) }}:8500"
+            - "8600:8600"
+            - "8600:8600/udp"
           restart: true
           restart_policy: unless-stopped
           state: started
