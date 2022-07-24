@@ -99,6 +99,17 @@
 
       when: not docker_socket_proxy_state.exists
 
+    ####### CONSUL NETWORK SECTION
+
+    - name: Set Consul Network facts
+      ansible.builtin.set_fact:
+        consul_network_name: consul-network
+
+    - name: Create Consul network
+      community.docker.docker_network:
+        name: "{{ consul_network_name | default('consul-network') }}"
+        internal: false
+
     ####### CONSUL SECTION
 
     # https://www.consul.io/docs/dynamic-app-config/kv
@@ -110,6 +121,7 @@
         consul_image_tag: latest
         consul_container_name: consul
         consul_container_port: 8500
+        consul_volume: consul-volume
       tags:
         - consul
 
@@ -129,17 +141,30 @@
         tags:
           - consul
 
+      - name: Create Consul volume
+        community.docker.docker_volume:
+          name: "{{ consul_volume }}"
+          labels:
+            description: 'Persistent data for consul'
+        tags:
+          - consul
+
       - name: Start Consul
         community.docker.docker_container:
           name: "{{ consul_container_name }}"
           image: "{{ consul_image_name }}:{{ consul_image_tag | default('latest') }}"
+          command: agent -server -bootstrap-expect=1
           detach: true
           published_ports:
+            - 8400:8400
             - "{{ consul_container_port | default(8500) }}:8500"
+            - 8600:8600
+            - 8600:8600/udp
           restart: true
           restart_policy: unless-stopped
           state: started
           volumes:
+            -"{{ consul_volume }}:/consul/data"
             - /etc/localtime:/etc/localtime:ro
         register: consul_register
         tags:
@@ -202,6 +227,7 @@
           image: "{{ vault_image_name }}:{{ vault_image_tag | default('latest') }}"
           capabilities:
             - IPC_LOCK
+          command: server
           detach: true
           env:
             VAULT_DEV_ROOT_TOKEN_ID: "{{ vault_dev_root_token_id }}"
@@ -323,7 +349,7 @@
         portainer_image_tag: latest
         portainer_container_name: portainer
         portainer_container_port: 9443
-        portainer_volume: portainer_volume
+        portainer_volume: portainer-volume
       tags:
         - portainer
 
@@ -693,3 +719,23 @@
           - watchtower
 
       when: not watchtower_state.exists
+
+
+# duplicati:
+#     image: lscr.io/linuxserver/duplicati:2.0.6
+#     container_name: duplicati
+#     restart: unless-stopped
+#     environment:
+#       - PUID=${PUID}
+#       - PGID=${PGID}
+#       - TZ=${TZ}
+#       #- CLI_ARGS= #optional
+#     volumes:
+#       - ${DATADIR}/duplicati/config>:/config
+#       - ${DATADIR}:/source
+#     ports:
+#       - 8200:8200
+#     logging:
+#       driver: loki
+#       options:
+#         loki-url: "http://localhost:3100/loki/api/v1/push"
