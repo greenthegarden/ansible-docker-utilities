@@ -123,6 +123,7 @@
         consul_container_name: consul
         consul_container_port: 8500
         consul_volume: consul-volume
+        consul_command: "agent -server -ui -bootstrap-expect=1 -client=0.0.0.0"
       tags:
         - consul
 
@@ -146,15 +147,15 @@
         community.docker.docker_volume:
           name: "{{ consul_volume }}"
           labels:
-            description: 'Persistent data for consul'
+            description: 'Persistent data storage for consul'
         tags:
           - consul
 
-      - name: Start Consul
+      - name: Start Consul as server
         community.docker.docker_container:
           name: "{{ consul_container_name }}"
           image: "{{ consul_image_name }}:{{ consul_image_tag | default('latest') }}"
-          command: agent -server -ui -bootstrap-expect=1 -client=0.0.0.0
+          command: "{{ consul_command }}"
           detach: true
           published_ports:
             # - 8400:8400
@@ -165,7 +166,7 @@
           restart_policy: unless-stopped
           state: started
           volumes:
-            -"{{ consul_volume }}:/consul/data"
+            - "{{ consul_volume }}:/consul/data"
             - /etc/localtime:/etc/localtime:ro
         register: consul_register
         tags:
@@ -258,87 +259,6 @@
           - vault
 
       when: not vault_state.exists
-
-    ####### CONSUL NETWORK SECTION
-
-    - name: Set Consul network facts
-      ansible.builtin.set_fact:
-        consul_network_name: consul-network
-      tags:
-        - consul
-
-    - name: Create Consul network
-      community.docker.docker_network:
-        name: "{{ consul_network_name | default('consul-network') }}"
-        internal: false
-      tags:
-        - consul
-
-    ####### CONSUL SECTION
-
-    # https://www.consul.io/docs/dynamic-app-config/kv
-    # https://hub.docker.com/_/consul/
-
-    - name: Set Consul facts
-      ansible.builtin.set_fact:
-        consul_image_name: consul
-        consul_image_tag: latest
-        consul_container_name: consul
-        consul_container_port: 8500
-      tags:
-        - consul
-
-    - name: Check if Consul is running
-      community.docker.docker_container_info:
-        name: "{{ consul_container_name }}"
-      register: consul_state
-      tags:
-        - consul
-      
-    - block:
-
-      - name: Pull Consul image
-        community.docker.docker_image:
-          name: "{{ consul_image_name }}:{{ consul_image_tag | default('latest') }}"
-          source: pull
-        tags:
-          - consul
-
-      - name: Start Consul container
-        community.docker.docker_container:
-          name: "{{ consul_container_name }}"
-          image: "{{ consul_image_name }}:{{ consul_image_tag | default('latest') }}"
-          command: "agent -server -bootstrap-expect 1 -ui -client 0.0.0.0"
-          detach: true
-          published_ports:
-            - "8400:8400"
-            - "{{ consul_container_port | default(8500) }}:8500"
-            - "8600:8600"
-            - "8600:8600/udp"
-          restart: true
-          restart_policy: unless-stopped
-          state: started
-          volumes:
-            - /etc/localtime:/etc/localtime:ro
-        register: consul_register
-        tags:
-          - consul
-
-      - name: Wait for Consul to accept connections
-        ansible.builtin.wait_for:
-          host: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
-          port: "{{ consul_container_port | default(8500) }}"
-          connect_timeout: 1
-          delay: 10
-          state: started
-          timeout: 30
-        register: consul_running
-        until: consul_running is success
-        retries: 10
-        tags:
-          - consul
-
-      when: not consul_state.exists
 
     ####### PORTAINER SECTION
 
