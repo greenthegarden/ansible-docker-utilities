@@ -124,6 +124,7 @@
         consul_container_port: 8500
         consul_volume: consul-volume
         consul_command: "agent -server -ui -bootstrap-expect=1 -client=0.0.0.0"
+        consul_service_hostname: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
       tags:
         - consul
 
@@ -199,35 +200,39 @@
         vault_container_name: vault
         vault_container_port: 8200
         vault_command: "server"
+        vault_service_hostname: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+        vault_service_protocol: http
       tags:
         - vault
 
-    - name: Set Vault vault facts
+    - name: Set Vault container facts
       ansible.builtin.set_fact:
-        vault_dev_root_token_id: homelabroot
-      tags:
-        - vault
+        vault_ports:
+          - "{{ vault_container_port | default(8200) }}:8200"
+        vault_service_url: "{{ vault_service_protocol }}://{{ vault_service_hostname }}:{{ vault_container_port }}"
+        vault_volumes:
+          - /etc/localtime:/etc/localtime:ro
 
     - name: Set Vault configuration facts
       ansible.builtin.set_fact:
-        vault_config_dir: "/home/{{ ansible_user_id }}/config/{{ vault_container_name }}"
-      tags:
-        - vault
-
-    - name: Create Vault configuration directory
-      ansible.builtin.file:
-        path: "{{ vault_config_dir }}"
-        state: directory
-        mode: '0755'
-      tags:
-        - vault
-
-    - name: Create Vault configuration
-      ansible.builtin.template:
-        src: templates/vault/vault.json.j2
-        dest: "{{ vault_config_dir }}/vault.json"
-        mode: '0644'
-      register: vault_config_state
+        vault_config:
+          apt_addr: "{{ vault_service_url }}"
+          default_lease_ttl: "10h"
+          disable_mlock: true
+          listener:
+              tcp:
+                address: "0.0.0.0:{{ vault_container_port }}"
+                tls_disable: true
+          max_lease_ttl: "10h"
+          storage:
+            consul:
+              address: "{{ consul_service_hostname }}:{{ consul_container_port | default(8500) }}"
+              path: vault
+          telemetry:
+            prometheus_retention_time: "30s"
+            disable_hostname: true
+          ui: true
+        vault_dev_root_token_id: homelabroot
       tags:
         - vault
 
@@ -257,21 +262,20 @@
           detach: true
           env:
             VAULT_DEV_ROOT_TOKEN_ID: "{{ vault_dev_root_token_id }}"
-          published_ports:
-            - "{{ vault_container_port | default(8200) }}:8200"
+            VAULT_LOCAL_CONFIG: "{{ vault_config | to_json }}"
+          hostname: "{{ vault_service_hostname }}"
+          published_ports: "{{ vault_ports }}"
           restart: true
           restart_policy: unless-stopped
           state: started
-          volumes:
-            - "{{ vault_config_dir }}:/vault/config"
-            - /etc/localtime:/etc/localtime:ro
-        register: vault_register
+          volumes: "{{ vault_volumes }}"
+        register: vault_container_state
         tags:
           - vault
 
       - name: Wait for Vault to accept connections
         ansible.builtin.wait_for:
-          host: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+          host: "{{ vault_service_hostname }}"
           port: "{{ vault_container_port | default(8200) }}"
           connect_timeout: 1
           delay: 10
