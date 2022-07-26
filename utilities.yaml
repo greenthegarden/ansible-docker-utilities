@@ -198,12 +198,36 @@
         vault_image_tag: latest
         vault_container_name: vault
         vault_container_port: 8200
+        vault_command: "server"
       tags:
         - vault
 
     - name: Set Vault vault facts
       ansible.builtin.set_fact:
         vault_dev_root_token_id: homelabroot
+      tags:
+        - vault
+
+    - name: Set Vault configuration facts
+      ansible.builtin.set_fact:
+        vault_config_dir: "/home/{{ ansible_user_id }}/config/{{ vault_container_name }}"
+      tags:
+        - vault
+
+    - name: Create Vault configuration directory
+      ansible.builtin.file:
+        path: "{{ vault_config_dir }}"
+        state: directory
+        mode: '0755'
+      tags:
+        - vault
+
+    - name: Create Vault configuration
+      ansible.builtin.template:
+        src: templates/vault/vault.json.j2
+        dest: "{{ vault_config_dir }}/vault.json"
+        mode: '0644'
+      register: vault_config_state
       tags:
         - vault
 
@@ -229,7 +253,7 @@
           image: "{{ vault_image_name }}:{{ vault_image_tag | default('latest') }}"
           capabilities:
             - IPC_LOCK
-          command: server
+          command: "{{ vault_command }}"
           detach: true
           env:
             VAULT_DEV_ROOT_TOKEN_ID: "{{ vault_dev_root_token_id }}"
@@ -239,6 +263,7 @@
           restart_policy: unless-stopped
           state: started
           volumes:
+            - "{{ vault_config_dir }}:/vault/config"
             - /etc/localtime:/etc/localtime:ro
         register: vault_register
         tags:
